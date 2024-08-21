@@ -1,0 +1,155 @@
+options(scipen = 999)
+# Read the data
+library(readr)
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(GGally)
+library(car)
+library(MASS)
+library(glmnet)
+library(plotly)
+library(corrplot)
+library(ggcorrplot)
+library(caret)
+library(reshape2)
+library(knitr)
+library(treemapify)
+library(data.table)
+library(treemap)
+#install.packages("treemap")
+
+file_path <- "\\\\fileshare\\CARPROOF\\FP&A\\Pricing\\Catalyst Analysis - DesRosier - VIO\\Comprehensive data for Volumes regression.csv"
+rdata <- read_csv(file_path)
+print(rdata)
+
+# Line charts with time
+ggplot(rdata, aes(x = Year, y = `Total Volume`)) +
+  geom_line(color = "skyblue", size = 1) +
+  ggtitle("Total Volume Over Years") +
+  xlab("Year") +
+  ylab("Total Volume") +
+  ylim(0, NA) +
+  theme_minimal() +
+  theme(panel.background = element_rect(fill = rgb(0.9, 0.9, 0.9, 0.3), color = NA),
+        panel.grid = element_blank())
+
+ggplot(rdata, aes(x = Year, y = `Insurance volumes`)) +
+  geom_line() +
+  ggtitle("Insurance Volumes Over Years") +
+  xlab("Year") +
+  ylab("Insurance Volumes")
+
+ggplot(rdata, aes(x = Year, y = `New Registration`)) +
+  geom_line() +
+  ggtitle("New Registration Over Years") +
+  xlab("Year") +
+  ylab("New Registration")
+
+# Macroeconomic Indicators Over Time
+scale_factor <- 100
+ggplot(rdata, aes(x = Year)) +
+  geom_line(aes(y = `GDP (b)`, color = "GDP (b)")) +
+  geom_line(aes(y = `Interest Rate` * scale_factor, color = "Interest Rate")) +
+  geom_line(aes(y = `Inflation Rate` * scale_factor, color = "Inflation Rate")) +
+  scale_y_continuous(
+    name = "GDP (b)",
+    sec.axis = sec_axis(~ . / scale_factor, name = "Interest Rate / Inflation Rate (%)")
+  ) +
+  labs(title = "Macroeconomic Indicators Over Time", x = "Year", color = "Indicator") +
+  theme_minimal() -> p
+ggplotly(p)
+
+# Google AdWords Spending and Ad Revenue Over Time
+p2 <- ggplot(rdata, aes(x = Year)) +
+  geom_line(aes(y = `Google Adwords Spending`, color = "Google Adwords Spending"), size = 1) +
+  geom_line(aes(y = `Ad Revenue`, color = "Ad Revenue"), size = 1) +
+  scale_color_manual(values = c("Google Adwords Spending" = "salmon", "Ad Revenue" = "blue4")) +
+  labs(title = "Google Adwords Spending and Ad Revenue Over Time", x = "Year", y = "Value", color = "Metric") +
+  scale_y_continuous(limits = c(0, NA)) +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+ggplotly(p2)
+
+# Trends in Different Lease Types Over Time
+lease_data <- rdata[, c("Year", "COMMERCIAL LEASE", "DEALER LEASE", "MANUFACTURER LEASE", "RETAIL LEASE")]
+melted_lease_data <- melt(lease_data, id.vars = "Year")
+ggplot(melted_lease_data, aes(x = Year, y = value, color = variable)) +
+  geom_line(size = 1) +
+  facet_wrap(~ variable, scales = "free_y") +
+  scale_color_manual(values = c("COMMERCIAL LEASE" = "blue", "DEALER LEASE" = "lightgreen", "MANUFACTURER LEASE" = "salmon", "RETAIL LEASE" = "purple")) +
+  labs(title = "Trends in Different Lease Types Over Time", x = "Year", y = "Value", color = "Lease Type") +
+  theme_minimal()
+
+#Treemap
+lease_data <- rdata[, c("Year", "COMMERCIAL LEASE", "DEALER LEASE", "MANUFACTURER LEASE", "RETAIL LEASE")]
+average_values <- colMeans(lease_data[, -1], na.rm = TRUE)
+average_df <- data.frame(Lease_Type = names(average_values), Average_Value = average_values)
+average_df$Lease_Type <- gsub(" LEASE", "", average_df$Lease_Type)
+average_df$Sqrt_Average_Value <- sqrt(average_df$Average_Value)
+treemap(average_df, index = "Lease_Type", vSize = "Sqrt_Average_Value", title = "Square Root-transformed Average Values of Lease Types", 
+        fontsize.labels = 12, fontface.labels = "bold")
+
+#Corr Matrix
+selected_vars <- c(
+  "Total inventory", 
+  "Ratio of total inventory to sales", 
+  "New Registration", 
+  "Google Adwords Spending", 
+  "ROAS", 
+  "Automotive equipment rental and leasing",
+  "MANUFACTURER LEASE"
+)
+data_filtered <- rdata[, selected_vars]
+correlation_matrix_filtered <- cor(data_filtered, use = "complete.obs")
+corr_long <- as.data.frame(as.table(correlation_matrix_filtered))
+names(corr_long) <- c("Var1", "Var2", "Correlation")
+corr_long$Color <- ifelse(abs(corr_long$Correlation) > 0.4, "salmon", "white")
+corr_long <- corr_long %>% 
+  mutate(
+    Var1 = factor(Var1, levels = colnames(correlation_matrix_filtered)),
+    Var2 = factor(Var2, levels = colnames(correlation_matrix_filtered))
+  ) %>%
+  filter(as.integer(Var1) > as.integer(Var2))
+ggplot(corr_long, aes(Var1, Var2, fill = Color, label = round(Correlation, 2))) +
+  geom_tile(color = "black") +
+  geom_text(size = 3) +
+  scale_fill_identity() +
+  theme_minimal() +
+  labs(title = "Correlation Matrix", x = "", y = "") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+        axis.text.y = element_text(face = "bold"))
+
+
+#Lasso Regression for Total volumes
+response_var <- "Total Volume"
+predictor_vars <- c(
+  "Inflation Rate", "Ratio of total inventory to sales", "New Registration", 
+  "Google Adwords Spending", "Users", "Conversion", "ROAS", 
+  "Finance and insurance", "Credit intermediation and monetary authorities",
+  "Depository credit intermediation and monetary authorities", "Local credit unions",
+  "Banking, monetary authorities and other depository credit intermediation",
+  "Automotive equipment rental and leasing", "Insurance carriers and related activities",
+  "Insurance carriers", "Agencies, brokerages and other insurance related activities",
+  "Financial investment services, funds and other financial vehicles", "COMMERCIAL LEASE",
+  "DEALER LEASE", "MANUFACTURER LEASE", "RETAIL LEASE"
+)
+X <- as.matrix(rdata[, predictor_vars])
+y <- rdata[[response_var]]
+lasso_model <- cv.glmnet(X, y, alpha = 1)
+plot(lasso_model)
+print(lasso_model)
+best_lambda <- lasso_model$lambda.min
+print(paste("Best lambda:", best_lambda))
+
+lasso_coeffs <- as.data.frame(as.matrix(coef(lasso_model, s = "lambda.min")))
+lasso_coeffs <- lasso_coeffs[lasso_coeffs != 0, , drop = FALSE]
+colnames(lasso_coeffs) <- c("Coefficient")
+kable(lasso_coeffs, caption = "LASSO Regression Coefficients")
+
+predictions <- predict(lasso_model, s = best_lambda, newx = X)
+mse <- mean((predictions - y)^2)
+sst <- sum((y - mean(y))^2)
+sse <- sum((predictions - y)^2)
+r_squared <- 1 - (sse / sst)
+r_squared
