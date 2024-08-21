@@ -19,7 +19,7 @@ library(data.table)
 library(treemap)
 #install.packages("treemap")
 
-file_path <- "\\\\fileshare\\CARPROOF\\FP&A\\Pricing\\Catalyst Analysis - DesRosier - VIO\\Comprehensive data for Volumes regression.csv"
+file_path <- "\\\\Comprehensive data for Volumes regression.csv"
 rdata <- read_csv(file_path)
 print(rdata)
 
